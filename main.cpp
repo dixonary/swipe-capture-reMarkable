@@ -19,6 +19,20 @@ struct PressRecord {
     PressRecord (string name) : name(name) {}
     PressRecord(){}
 };
+struct TouchRecord {
+    bool pressed = false;
+    struct timeval pressTime;
+    string name = "Touch";
+    int initX = -1;
+    int initY = -1;
+    int x = -1;
+    int y = -1;
+    bool needX = true;
+    bool needY = true;
+    TouchRecord (string name) : name(name) {}
+    TouchRecord(){}
+};
+
 
 int main()
 {
@@ -29,11 +43,25 @@ int main()
     map[106] = PressRecord("Right");
     map[116] = PressRecord("Power");
 
-    // Open the button device.
+    TouchRecord swipe;
+
+    // Open the touch device.
     ifstream eventsfile;
-    eventsfile.open("/dev/input/event2", ios::in);
+    eventsfile.open("/dev/input/event1", ios::in);
     if(eventsfile.is_open()) {
         cout << "File open for reading." << endl;
+    }
+    else {
+        cout << "File couldn't be opened." << endl;
+        return 0;
+    }
+
+
+    // Open the buttons device.
+    ofstream buttonfile;
+    buttonfile.open("/dev/input/event2", ios::out);
+    if(buttonfile.is_open()) {
+        cout << "File open for writing." << endl;
     }
     else {
         cout << "File couldn't be opened." << endl;
@@ -44,8 +72,100 @@ int main()
     input_event ie;
     streamsize sie = static_cast<streamsize>(sizeof(struct input_event));
 
-    while(eventsfile.read((char*)&ie, sie)) {
+    timeval tadd{300000};
 
+    input_event button;
+    input_event empty{0};
+
+    while(eventsfile.read((char*)&ie, sie)) {
+        switch(ie.code) {
+        case ABS_MT_POSITION_X :
+            // horizontal distance from RHS
+            if(swipe.needX) {
+                swipe.initX = ie.value;
+                swipe.needX = false;
+            }
+            else swipe.x = ie.value;
+
+            //cout << "X Value " << ie.value << endl;
+            break;
+
+        case ABS_MT_POSITION_Y:
+            // vertical distance from bottom
+            if(swipe.needY) {
+                swipe.initY = ie.value;
+                swipe.needY = false;
+            }
+            else swipe.y = ie.value;
+
+            //cout << "Y Value " << ie.value << endl;
+            break;
+
+        case 57:
+        {
+            // release
+            struct timeval ctime;
+            gettimeofday(&ctime,NULL);
+
+            // Calculate length of hold
+            long usecs = ((ctime.tv_sec   -  swipe.pressTime.tv_sec  )*1000000L
+                          +ctime.tv_usec) -  swipe.pressTime.tv_usec;
+
+            cout << swipe.initX << " " << swipe.initY << " " << swipe.x << " " << swipe.y << " " << usecs << endl;
+
+            if(usecs < 1000000L && swipe.initX < 400 && swipe.x > 400) {
+                cout << "PING" << endl;
+                button.code = 106;
+                gettimeofday(&button.time, NULL);
+                button.type = 1;
+                button.value = 1;
+                buttonfile.write((char*)&button, sie);
+                buttonfile.write((char*)&empty, sie);
+                buttonfile.flush();
+
+                usleep(20000);
+
+                gettimeofday(&button.time, NULL);
+                button.value = 0;
+                buttonfile.write((char*)&button, sie);
+                buttonfile.write((char*)&empty, sie);
+                buttonfile.flush();
+            }
+
+            if(usecs < 1000000L && swipe.initX > 400 && swipe.x <=400) {
+                cout << "PONG" << endl;
+                button.code = 105;
+                gettimeofday(&button.time, NULL);
+                button.type = 1;
+                button.value = 1;
+                buttonfile.write((char*)&button, sie);
+                buttonfile.write((char*)&empty, sie);
+                buttonfile.flush();
+
+                usleep(20000);
+
+                gettimeofday(&button.time, NULL);
+                button.value = 0;
+                buttonfile.write((char*)&button, sie);
+                buttonfile.write((char*)&empty, sie);
+                buttonfile.flush();
+            }
+
+            swipe.x = swipe.y = swipe.initX = swipe.initY = -1;
+            swipe.needX = swipe.needY = true;
+            gettimeofday(&swipe.pressTime,NULL);
+
+            break;
+        }
+        case 0:
+            //cout << endl;
+            break;
+
+        default:
+            //cout << "Code " << ie.code << "  Type " << ie.type << "  Value " << ie.value << endl;
+            break;
+        }
+        /*
         // Read for non-zero event codes.
         if(ie.code != 0) {
 
@@ -88,9 +208,11 @@ int main()
 
             }
         }
+            */
     }
 
     eventsfile.close();
+    buttonfile.close();
 
     return 0;
 }

@@ -5,7 +5,7 @@ CONFIG -= qt
 
 SOURCES += main.cpp
 
-TARGET=button-capture
+TARGET=swipe-capture
 
 target.path = /usr/bin
 INSTALLS += target
